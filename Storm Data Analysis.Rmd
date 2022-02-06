@@ -1,0 +1,375 @@
+---
+title: "Storm Data Analysis"
+author: "Suzannah Herron"
+date: "2/4/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Synopsis
+
+This data comes from the US National Oceanic and Atmospheric Administration's (NOAA) storm database. There was a lot of cleaning that needed to be done, especially regarding the names of the event types. \
+The goal is to look at:\
+  1. Which weather event types are the deadliest (first plot)\
+  2. Which weather event types have the greatest economic impact (second plot)\
+I also decided to find which states were the safest and most dangerous to live in (third plot).
+
+
+
+
+# Data Processing
+
+Checking to see if dataset exists already. If not, then download and unzip.
+```{r cache=TRUE}
+file_name <- "storms.csv.bz2"
+if (!file.exists(file_name)) {
+  url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2"
+  download.file(url, file_name, method = "curl")
+}
+if (!file.exists(file_name)) {
+  unzip(file_name)
+}
+storms <- read.csv(file_name)
+str(storms)
+```
+Format `BGN_DATE` to be a date then add a column with the year to use for factoring later.
+```{r message=FALSE}
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+```
+```{r}
+storms$BGN_DATE <- mdy_hms(storms$BGN_DATE)
+storms$YEAR <- year(storms$BGN_DATE)
+# str(storms)
+```
+
+Cutting down the dataset to relevant columns/variables for analysis for bodily, property, and crop damage.
+
+### Variables
+
+**STATE**: State abbreviation (I am keeping this in case I want to try mapping)\
+**EVTYPE**: Type of event \
+**FATALITIES**: Number of fatalities caused by event\
+**INJURIES**: Number of injuries caused by event\
+**PROPDMG**: USD amount of property damage\
+**PROPDMGEXP**: Multiplying factor {exponent} for PROPDMG\
+**CROPDMG**: USD amount of crop damage\
+**CROPDMGEXP**: Multiplying factor (exponent) for CROPDMG\
+**YEAR**: Starting year of event extracted from `storms$BGN_DATE`\
+```{r}
+cols <- c( "STATE", "EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP", "YEAR")
+storms1 <- storms[ , cols]
+# str(storms1)
+```
+
+Since we are looking at the different effects of each event type, a creation of a dataframe grouped by event types is necessary.\
+Checking the types of events:
+```{r}
+types <- unique(storms1$EVTYPE)
+str(types)
+```
+Some of the event types are all upper case and some are a combo of upper and lower case. Changed all to lowercase and the number of events went from 985 to 898
+```{r}
+storms2 <- storms1
+storms2$EVTYPE <- tolower(storms2$EVTYPE) 
+types <- unique(storms2$EVTYPE)
+str(types)
+```
+There are several event names with whitespace in the beginning so that was trimmed and the number of events is 890
+```{r}
+storms2$EVTYPE <- trimws(storms2$EVTYPE, which = "both")
+types <- unique(storms2$EVTYPE)
+str(types)
+```
+The next step would be to group the event types into larger categories to make it easier to analyze.\
+Categories will be:\
+*tornado, wind, hail, rain, flood, hurricane, lightning, cold (snow, ice, blizzards, winter storms), fire*\
+Afterwards, I will check the events categorized as "other" and reassess.
+```{r}
+storms3 <- storms2
+storms3$CAT <- "other"
+storms3$CAT[grep("tornado", storms3$EVTYPE)] <- "tornado"
+storms3$CAT[grep("wind", storms3$EVTYPE)] <- "wind"
+storms3$CAT[grep("hail", storms3$EVTYPE)] <- "hail"
+storms3$CAT[grep("rain", storms3$EVTYPE)] <- "rain"
+storms3$CAT[grep("flood", storms3$EVTYPE)] <- "flood"
+storms3$CAT[grep("hurricane", storms3$EVTYPE)] <- "hurricane"
+storms3$CAT[grep("lightning", storms3$EVTYPE)] <- "thunderstorm"
+storms3$CAT[grep("snow", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("ice", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("blizzard", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("winter", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("fire", storms3$EVTYPE)] <- "fire"
+sort(table(storms3$CAT))
+```
+Take a look what is still in the "other" category:
+```{r}
+other <- storms3
+other <- storms3[storms3$CAT == "other", ]
+other <- other[ , c(2,10)]
+types_other <- unique(other$EVTYPE)
+head(types_other)
+```
+Categorize more and changing "fire" to "heat" and changing "lightning" to "thunderstorm". Adding categories "volcano" and "dry". (I changed some of the code in chunk 9.)
+```{r}
+storms3$CAT[grep("cold", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("record low", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("fire", storms3$EVTYPE)] <- "heat"
+storms3$CAT[grep("heat", storms3$EVTYPE)] <- "heat"
+storms3$CAT[grep("hot", storms3$EVTYPE)] <- "heat"
+storms3$CAT[grep("warm", storms3$EVTYPE)] <- "heat"
+storms3$CAT[grep("record high", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("icy", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("freez", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("sleet", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("showers", storms3$EVTYPE)] <- "rain"
+storms3$CAT[grep("precipitation", storms3$EVTYPE)] <- "cold"
+storms3$CAT[grep("thunderstorm", storms3$EVTYPE)] <- "thunderstorm"
+storms3$CAT[grep("microburst", storms3$EVTYPE)] <- "thunderstorm"
+storms3$CAT[grep("tstm", storms3$EVTYPE)] <- "thunderstorm"
+storms3$CAT[grep("volcan", storms3$EVTYPE)] <- "volcano"
+storms3$CAT[grep("dry", storms3$EVTYPE)] <- "dry"
+storms3$CAT[grep("driest", storms3$EVTYPE)] <- "dry"
+storms3$CAT[grep("drought", storms3$EVTYPE)] <- "dry"
+```
+
+```{r}
+other <- storms3
+other <- storms3[storms3$CAT == "other", ]
+other <- other[ , c(2,10)]
+types_other <- unique(other$EVTYPE)
+length(types_other)
+length(unique(storms3$CAT))
+```
+Now I have 12 categories with 222 event types categorized as "other". Just as a side note, looking through the event types, there are a lot of typos in this data.
+
+## Splitting Data
+
+Create two different dataframes with injuries/fatalities and financial impact.
+```{r}
+fatal_inj <- storms3[ , c(1:4, 9, 10)]
+head(fatal_inj)
+```
+```{r}
+prop_crop <- storms3[ , c(1, 2, 5:10)]
+head(prop_crop)
+```
+
+
+
+# Analysis
+
+
+## Which types of events are most harmful to population health?
+
+The first step is to find the totals for injuries and fatalities for each event type per year.
+```{r}
+sum_fatal <- aggregate(FATALITIES ~ CAT + YEAR, fatal_inj, sum)
+sum_inj <- aggregate(INJURIES ~ CAT + YEAR, fatal_inj, sum)
+sum_fi <- cbind(sum_fatal, sum_inj$INJURIES)
+colnames(sum_fi) <- c("cat", "year", "fatalities", "injuries")
+head(sum_fi)
+```
+Add a row with the sum of total health impact (fatalities + injuries)
+```{r}
+total_fi <- sum_fi
+total_fi$total <- total_fi$fatalities + total_fi$injuries
+head(total_fi)
+```
+
+
+Then create a plot of total human impact per event each year.
+
+```{r}
+# png(filename= "fi.png", height = 600, width = 600)
+ggplot(data = total_fi) +
+  geom_line(mapping = aes(x = year, y = total)) +
+  facet_wrap(~cat) +
+  labs(title = "Total Fatalities and Injuries Per Weather Event",
+       x = "Year",
+       y = "Total Fatalities/Injuries")
+# dev.off()
+```
+
+You can clearly see that tornados are the most harmful to humans and you can confirm it by ordering the totals:
+```{r}
+events_fi <- aggregate(total ~ cat, total_fi, sum)
+events_fi <- events_fi[order(-events_fi$total), ]
+events_fi
+```
+
+It is also interesting to see when certain categories were starting to be recorded.
+
+
+
+## Which types of events have the greatest economic consequences?
+
+
+First, let's take a look at `prop_crop$CROPDMGEXP` and `prop_crop$PROPDMGEXP` to see what's in them and if they need formatting:
+```{r}
+unique(prop_crop$CROPDMGEXP)
+unique(prop_crop$PROPDMGEXP)
+```
+As expected, they need some help. 
+
+
+```{r}
+prop_crop2 <- prop_crop
+prop_crop2$pexp <- prop_crop2$PROPDMGEXP
+prop_crop2$pexp[grep("[Kk]|3", prop_crop2$PROPDMGEXP)] <- 10^3
+prop_crop2$pexp[grep("[Mm]|6", prop_crop2$PROPDMGEXP)] <- 10^6
+prop_crop2$pexp[grep("[Bb]|9", prop_crop2$PROPDMGEXP)] <- 10^9
+prop_crop2$pexp[grep("[Hh]|2", prop_crop2$PROPDMGEXP)] <- 10^2
+prop_crop2$pexp[grep("8", prop_crop2$PROPDMGEXP)] <- 10^8
+prop_crop2$pexp[grep("5", prop_crop2$PROPDMGEXP)] <- 10^5
+prop_crop2$pexp[grep("4", prop_crop2$PROPDMGEXP)] <- 10^4
+prop_crop2$pexp[grep("7", prop_crop2$PROPDMGEXP)] <- 10^7
+prop_crop2$pexp[grep("0", prop_crop2$PROPDMGEXP)] <- 1
+prop_crop2$pexp[grep("1", prop_crop2$PROPDMGEXP)] <- 10
+prop_crop2$pexp[grep("-", fixed = TRUE, prop_crop2$PROPDMGEXP)] <- 1
+prop_crop2$pexp[grep("?", fixed = TRUE, prop_crop2$PROPDMGEXP)] <- 1
+prop_crop2$pexp[grep("+", fixed = TRUE, prop_crop2$PROPDMGEXP)] <- 1
+prop_crop2$pexp <- as.numeric(prop_crop2$pexp)
+```
+```{r}
+prop_crop2$cexp <- prop_crop2$CROPDMGEXP
+prop_crop2$cexp[grep("[Kk]", prop_crop2$CROPDMGEXP)] <- 10^3
+prop_crop2$cexp[grep("[Mm]", prop_crop2$CROPDMGEXP)] <- 10^6
+prop_crop2$cexp[grep("[Bb]", prop_crop2$CROPDMGEXP)] <- 10^9
+prop_crop2$cexp[grep("0", prop_crop2$CROPDMGEXP)] <- 1
+prop_crop2$cexp[grep("?", fixed = TRUE, prop_crop2$CROPDMGEXP)] <- 1
+prop_crop2$cexp[grep("2", prop_crop2$CROPDMGEXP)] <- 10^2
+unique(prop_crop2$cexp)
+prop_crop2$cexp <- as.numeric(prop_crop2$cexp)
+
+```
+
+Take out the rows that have `NA`s for both of the created exponential columns
+```{r}
+dmg <- prop_crop2[(!(is.na(prop_crop2$pexp) & is.na(prop_crop2$cexp))), ]
+```
+
+Next it's time to calculate the totals of crop and property damage by multiplying the `DMG` columns by the `DMGEXP` columns. Then change the `NA`s to 0 so they columns can be added.
+```{r}
+pc4 <- dmg
+pc4$prop_total <- pc4$PROPDMG * pc4$pexp
+pc4$crop_total <- pc4$CROPDMG * pc4$cexp
+pc4$crop_total[is.na(pc4$crop_total)] <- 0
+pc4$prop_total[is.na(pc4$prop_total)] <- 0
+pc4$total <- pc4$prop_total + pc4$crop_total
+pc4 <- pc4[ , c(1,2,7,8,13)]
+str(pc4)
+```
+
+Find the sum per category and divide the total by 1M so it will be more readable in the graph.
+```{r}
+event_dmg <- aggregate(total ~ CAT + YEAR, pc4, sum)
+event_dmg$total <- event_dmg$total/10^6
+str(event_dmg)
+```
+Let's graph it 
+```{r}
+# png(filename= "cost.png", height = 600, width = 600)
+ggplot(data = event_dmg) +
+  geom_line(mapping = aes(x = YEAR, y = total)) +
+  facet_wrap(~CAT) +
+  labs(title = "Economic Impact Per Weather Event",
+       x = "Year",
+       y = "Total Cost by $1M")
+# dev.off()
+```
+
+```{r}
+total_dmg <- aggregate(total ~ CAT, event_dmg, sum)
+total_dmg <- total_dmg[order(-total_dmg$total), ]
+total_dmg
+```
+Here you can see that flooding has been the most costly weather event\
+
+## Where should you live?
+
+
+I thought it would be interesting to see which states are the best and worst to live in regarding weather events. Since tornadoes and floods are the most dangerous, I have split the data to contain only those categories.
+```{r}
+states <- prop_crop
+states <- states[states$CAT == "tornado" | states$CAT == "flood", c(1, 7, 8)]
+head(states)
+states[ , 1] <- as.factor(states$STATE)
+states[ , 3] <- as.factor(states$CAT)
+summary(states)
+```
+
+```{r warning=FALSE}
+ggplot(data = states) +
+  geom_histogram(mapping = aes(x = STATE, fill = CAT), stat = "count") +
+  labs(title = "Total of Flood and Tornado Events Per State",
+       x = "State",
+       y = "Total Number of Events",
+       fill = "Event") +
+  theme(axis.text.x = element_text(angle = 45, size = 4.5))
+
+```
+It looks like Texas is the most dangerous state to live in. We can confirm that by ordering the number of events for each event type.
+
+```{r}
+flood <- states[states$CAT == "flood", ]
+tornado <- states[states$CAT == "tornado", ]
+```
+```{r}
+t <- tornado %>%
+  count(STATE)
+t <- t[order(t$n), ]
+head(t, 3)
+```
+```{r}
+tail(t, 3)
+```
+```{r}
+f <- flood %>%
+  count(STATE)
+f <- f[order(f$n), ]
+head(f, 3)
+```
+```{r}
+tail(f, 3)
+```
+
+
+
+# Results
+
+Tornadoes result in the most fatalities and injuries while flooding has the greatest economic impact. Ergo, stay away from areas with tornadoes and floods.\
+The safest states/districts/territories from tornadoes are:\
+  1. Washington DC\
+  2. Alaska\
+  3. Rhode Island\
+\
+The most dangerous states/districts/territories for tornadoes are:\
+  1. Texas\
+  2. Kansas\
+  3. Oklahoma\
+\
+The safest states/districts/territories from floods are:\
+  1. Guam\
+  2. American Samoa\
+  3. Virgin Islands\
+\
+The most dangerous states/districts/territories for tornadoes are:\
+  1. Texas\
+  2. Missouri\
+  3. Kentucky\
+
+We learned that Texas is a very dangerous state to live in and Rhode Island is a nice and safe little state.
+
+
+
+
+
+
+
+
+
